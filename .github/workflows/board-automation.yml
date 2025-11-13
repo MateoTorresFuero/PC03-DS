@@ -1,0 +1,68 @@
+name: Board Automation
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, reopened]
+    branches: [develop, main]
+
+jobs:
+  move-cards:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Move card based on event
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          PROJECT_NUMBER: 1
+        run: |
+          python -c "
+          import sys
+          import os
+          import re
+          from bot.github_projects import GitHubProjects
+
+          event_name = '${{ github.event_name }}'
+          owner = os.getenv('GITHUB_OWNER')
+          repo = os.getenv('GITHUB_REPO')
+          project_number = int(os.getenv('PROJECT_NUMBER', '1'))
+
+          projects = GitHubProjects(owner, repo, project_number)
+
+          try:
+              if event_name == 'issues':
+                  issue_number = ${{ github.event.issue.number }}
+                  projects.move_card(issue_number, 'In Progress')
+                  print(f'Tarjeta #{issue_number} movida a In Progress')
+              
+              elif event_name == 'pull_request':
+                  pr_body = '''${{ github.event.pull_request.body }}'''
+                  pattern = r'(?:Fixes|Closes|Resolves)\s*#(\d+)'
+                  matches = re.findall(pattern, pr_body, re.IGNORECASE)
+                  
+                  if not matches:
+                      print('PR no contiene Fixes #N en descripcion')
+                      sys.exit(0)
+                  
+                  for issue_num in matches:
+                      issue_number = int(issue_num)
+                      projects.move_card(issue_number, 'Review/QA')
+                      print(f'Tarjeta #{issue_number} movida a Review/QA')
+
+          except Exception as e:
+              print(f'Error al mover tarjeta: {e}')
+              sys.exit(1)
