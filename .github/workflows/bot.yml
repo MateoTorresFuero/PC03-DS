@@ -1,0 +1,81 @@
+name: ChatOps Bot - Incident Detection
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - "feature/**"
+      - "hotfix/**"
+      - "fix/**"
+
+jobs:
+  detect-incidents:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Detect and create incident issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+        run: |
+          python -c "
+          import sys
+          from bot.event_handlers import EventHandler
+          from bot.github_client import GitHubClient
+          from bot.config import Config
+
+          # Obtener mensaje del último commit
+          commit_message = '''${{ github.event.head_commit.message }}'''
+
+          # Detectar incidente
+          handler = EventHandler()
+          incident = handler.handle_commit(commit_message)
+
+          if incident is None:
+              print(' No es un commit de incidente')
+              sys.exit(0)
+
+          # Crear issue en GitHub
+          try:
+              config = Config()
+              client = GitHubClient(config.token, config.owner, config.repo)
+              
+              issue_number = client.create_incident_issue(
+                  title=incident['title'],
+                  severity=incident['severity']
+              )
+              
+              print(f'Issue #{issue_number} creado:')
+              print(f'Titulo: {incident[\"title\"]}')
+              print(f'Severidad: {incident[\"severity\"]}')
+              print(f'URL: https://github.com/${{ github.repository }}/issues/{issue_number}')
+              
+          except Exception as e:
+              print(f'Error al crear issue: {e}')
+              sys.exit(1)
+          "
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "###  ChatOps Bot Execution" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rama:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Autor:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
