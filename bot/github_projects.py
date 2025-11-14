@@ -1,5 +1,6 @@
 import json
 import subprocess
+import time
 
 
 class GitHubProjects:
@@ -66,7 +67,7 @@ class GitHubProjects:
         if column_name not in self._status_options:
             raise ValueError(f"Columna '{column_name}' no existe en el proyecto")
 
-        # Primero agregar issue al proyecto si no está
+        # Agregar issue al proyecto
         try:
             self._run_gh(
                 "project",
@@ -77,27 +78,33 @@ class GitHubProjects:
                 "--url",
                 f"https://github.com/{self.owner}/{self.repo}/issues/{issue_number}",
             )
+            time.sleep(2)  # Delay para sincronización
         except subprocess.CalledProcessError:
             pass  # Ya está en el proyecto
 
-        # Obtener item-id del issue
-        items = self._run_gh(
-            "project",
-            "item-list",
-            str(self.project_number),
-            "--owner",
-            self.owner,
-            "--format",
-            "json",
-            "--limit",
-            "100",
-        )
-
+        # Buscar item con retry
         item_id = None
-        for item in items["items"]:
-            if item.get("content", {}).get("number") == issue_number:
-                item_id = item["id"]
+        for attempt in range(3):
+            items = self._run_gh(
+                "project",
+                "item-list",
+                str(self.project_number),
+                "--owner",
+                self.owner,
+                "--format",
+                "json",
+                "--limit",
+                "100",
+            )
+
+            for item in items["items"]:
+                if item.get("content", {}).get("number") == issue_number:
+                    item_id = item["id"]
+                    break
+
+            if item_id:
                 break
+            time.sleep(2)  # Esperar antes de reintentar
 
         if not item_id:
             raise ValueError(f"Issue #{issue_number} no encontrado en proyecto")
